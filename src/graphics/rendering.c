@@ -13,12 +13,11 @@
 #include "ui.h"
 #include <time.h>
 #include <math.h>
+#ifdef TSC_MULTIPLAYER
+#include "../multiplayer/multiplayer.h"
+#endif // TSC_MULTIPLAYER
 
-typedef struct camera_t {
-    double x, y, cellSize, speed;
-} camera_t;
-
-static camera_t renderingCamera;
+camera_t renderingCamera;
 static Shader renderingRepeatingShader;
 static unsigned int renderingRepeatingScaleLoc;
 static RenderTexture renderingCellTexture;
@@ -177,7 +176,7 @@ static float tsc_rotInterp(char rot, signed char added) {
     return last + (now - last) * (t >= 1 ? 1 : t);
 }
 
-static void tsc_drawCell(tsc_cell *cell, int x, int y, double opacity, int gridRepeat, bool forceRectangle) {
+void tsc_drawCell(tsc_cell *cell, int x, int y, double opacity, int gridRepeat, bool forceRectangle) {
     if(cell->id == builtin.empty && cell->texture == NULL) return;
     Texture texture = textures_get(cell->texture == NULL ? cell->id : cell->texture);
     double size = renderingCamera.cellSize * gridRepeat;
@@ -548,6 +547,13 @@ static void tsc_handleCellPlace() {
                 if(currentFlags & TSC_FLAGS_PLACEABLE) {
                     tsc_grid_setBackground(currentGrid, x + ox, y + oy, &current);
                 } else {
+#ifdef TSC_MULTIPLAYER
+                    tsc_cell* cell = tsc_grid_get(currentGrid, x + ox, y + oy);
+                    if (cell->id != currentId || cell->rot != currentRot) {
+                        tsc_mp_placeCell(currentId, currentRot, x + ox, y + oy);
+                    }
+#endif // TSC_MULTIPLAYER
+                    // TODO: Shouldnt set the grid here but when the server send the set cell packet back (doesnt yet but yes)
                     tsc_grid_set(currentGrid, x + ox, y + oy, &current);
                 }
             }
@@ -560,6 +566,12 @@ static void tsc_handleCellPlace() {
                 if(currentFlags & TSC_FLAGS_PLACEABLE) {
                     tsc_grid_setBackground(currentGrid, x + ox, y + oy, &nothing);
                 } else {
+#ifdef TSC_MULTIPLAYER
+                    tsc_cell* cell = tsc_grid_get(currentGrid, x + ox, y + oy);
+                    if (cell->id != builtin.empty || cell->rot != 0) {
+                        tsc_mp_placeCell(builtin.empty, 0, x + ox, y + oy);
+                    }
+#endif // TSC_MULTIPLAYER
                     tsc_grid_set(currentGrid, x + ox, y + oy, &nothing);
                 }
             }

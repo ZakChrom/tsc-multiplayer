@@ -17,3 +17,5 @@ mods/*/
 platforms/*/
 /resources/*/
 !resources/default
+server
+*.rlib

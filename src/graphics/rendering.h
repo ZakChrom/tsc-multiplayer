@@ -4,8 +4,13 @@
 #include "../cells/grid.h"
 #include "ui.h"
 
+typedef struct camera_t {
+    double x, y, cellSize, speed;
+} camera_t;
+
 extern const char *currentId;
 extern char currentRot;
+extern camera_t renderingCamera;
 
 typedef union tsc_categorybutton {
     ui_button *cell;
@@ -23,5 +28,6 @@ int tsc_cellMouseY();
 void tsc_drawGrid();
 void tsc_handleRenderInputs();
 void tsc_pasteGridClipboard();
+void tsc_drawCell(tsc_cell *cell, int x, int y, double opacity, int gridRepeat, bool forceRectangle);
 
 #endif

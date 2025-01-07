@@ -67,6 +67,13 @@ ifeq ($(MARCH_NATIVE), 1)
 	CFLAGS += -march=native
 endif
 
+MULTIPLAYER_DEPS=
+ifeq ($(MULTIPLAYER), 1)
+	LFLAGS += -l:multiplayer.a -L.
+	CFLAGS += -DTSC_MULTIPLAYER
+	MULTIPLAYER_DEPS = multiplayer.a
+endif
+
 CFLAGS += $(ECFLAGS)
 LFLAGS += $(ELFLAGS)
 
@@ -86,7 +93,7 @@ fresh: clean all
 	
 library: $(objects)
 	$(LINKER) -o $(LIBRARY) -shared $(objects) $(LFLAGS) $(LINKRAYLIB)
-main.o: src/main.c
+main.o: src/main.c $(MULTIPLAYER_DEPS)
 	$(CC) $(CFLAGS) src/main.c -o main.o
 testing.o: src/testing.c
 	$(CC) $(CFLAGS) src/testing.c -o testing.o
@@ -124,3 +131,10 @@ tscjson.o: src/api/tscjson.c
 	$(CC) $(CFLAGS) src/api/tscjson.c -o tscjson.o
 tinycthread.o: src/threads/tinycthread.c
 	$(CC) $(CFLAGS) src/threads/tinycthread.c -o tinycthread.o
+
+ifeq ($(MULTIPLAYER), 1)
+multiplayer.a: src/multiplayer/client.rs src/multiplayer/server.rs src/multiplayer/shared.rs
+	rustc src/multiplayer/shared.rs --crate-type=rlib --edition=2021 -o libshared.rlib
+	rustc src/multiplayer/client.rs --extern shared=libshared.rlib --crate-type=staticlib --edition=2021 -C link-args=workers.o -C link-args=utils.o -C link-args=cell.o -C link-args=grid.o -C link-args=resources.o -C link-args=rendering.o -C link-args=subticks.o -C link-args=saving.o -C link-args=saving_buffer.o -C link-args=ui.o -C link-args=api.o -C link-args=tinycthread.o -C link-args=ticking.o -C link-args=modloader.o -C link-args=value.o -C link-args=tscjson.o -o multiplayer.a
+	rustc src/multiplayer/server.rs --extern shared=libshared.rlib -C link-args=/usr/local/lib/libraylib.so --edition=2021 -C link-args=workers.o -C link-args=utils.o -C link-args=cell.o -C link-args=grid.o -C link-args=resources.o -C link-args=rendering.o -C link-args=subticks.o -C link-args=saving.o -C link-args=saving_buffer.o -C link-args=ui.o -C link-args=api.o -C link-args=tinycthread.o -C link-args=ticking.o -C link-args=modloader.o -C link-args=value.o -C link-args=tscjson.o -o server
+endif

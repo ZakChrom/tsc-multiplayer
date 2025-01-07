@@ -1,3 +1,5 @@
+#define TSC_MULTIPLAYER
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -18,6 +20,12 @@
 #define RAYGUI_IMPLEMENTATION
 #include "raygui.h"
 
+#ifdef TSC_MULTIPLAYER
+#include "multiplayer/multiplayer.h"
+#include <math.h>
+#include <assert.h>
+#endif // TSC_MULTIPLAYER
+
 // dont worry about this this would never fuck shit up
 void *rp_resourceTableGet(tsc_resourcetable *table, const char *id); 
 
@@ -26,6 +34,9 @@ ui_frame *tsc_creditsMenu;
 
 typedef struct tsc_mainMenuBtn_t {
     ui_button *play;
+#ifdef TSC_MULTIPLAYER
+    ui_button *multiplayer;
+#endif // TSC_MULTIPLAYER
     ui_button *settings;
     ui_button *credits;
     ui_button *texturepacks;
@@ -90,6 +101,12 @@ void tsc_magicStreamProcessorDoNotUseEver(void *buffer, unsigned int sampleCount
 }
 
 #define TSC_GRID_SIZE_BUFSIZE 16
+
+#ifdef TSC_MULTIPLAYER
+#define TSC_MP_SERVER_BUFSIZE 64
+void            *           tsc_serverReciever = NULL;
+uint16_t tsc_clientId = 0;
+#endif // TSC_MULTIPLAYER
 
 int main(int argc, char **argv) {
     srand(time(NULL));
@@ -180,6 +197,16 @@ int main(int argc, char **argv) {
     tsc_mainMenuBtn.settings = tsc_ui_newButtonState();
     tsc_mainMenuBtn.credits = tsc_ui_newButtonState();
 
+#ifdef TSC_MULTIPLAYER
+    tsc_mainMenuBtn.multiplayer = tsc_ui_newButtonState();
+    float last_cursor_x = 0.0;
+    float last_cursor_y = 0.0;
+    Vector3 mpColor = {0.75, 0.0, 1.0};
+    char mpName[17] = "";
+    char mpServer[TSC_MP_SERVER_BUFSIZE] = "";
+    bool mpNameSel, mpServerSel = false;
+#endif // TSC_MULTIPLAYER
+
     int off = 0;
     
     tsc_mainMenuParticle_t mainMenuParticles[TSC_MAINMENU_PARTICLE_COUNT];
@@ -226,6 +253,83 @@ int main(int argc, char **argv) {
 
         if(tsc_streql(tsc_currentMenu, "game")) {
             tsc_drawGrid();
+#ifdef TSC_MULTIPLAYER
+            tsc_clientId = tsc_mp_getMyId();
+            if (tsc_mp_isMultiplayer() && tsc_clientId != 0) {
+                assert(tsc_serverReciever != NULL);
+                tsc_mp_processMessage(tsc_serverReciever);
+
+                int clients = tsc_mp_getClientsLen();
+                for (int i = 0; i < clients; i++) {
+                    tsc_mp_client_t client = tsc_mp_getClient(i);
+                    if (client.id == tsc_clientId) {
+                        DrawText(
+                            TextFormat("%d", tsc_clientId),
+                            GetMouseX(),
+                            GetMouseY() + 20,
+                            20,
+                            WHITE
+                        );
+                        continue;
+                    }
+                    Vector2 pos = {
+                        .x = (client.x * renderingCamera.cellSize) - renderingCamera.x,
+                        .y = (client.y * renderingCamera.cellSize) - renderingCamera.y
+                    };
+                    Vector2 text_size = MeasureTextEx(GetFontDefault(), client.name, 0.4 * renderingCamera.cellSize, 0.1 * renderingCamera.cellSize);
+                    Vector2 text_pos = {
+                        .x = pos.x - (text_size.x / 2.0) + (renderingCamera.cellSize / 2.0),
+                        .y = pos.y + renderingCamera.cellSize
+                    };
+                    Color tint = {
+                        .r = client.r,
+                        .g = client.g,
+                        .b = client.b,
+                        .a = 255
+                    };
+
+                    DrawTextureEx(
+                        textures_get(tsc_strintern("cursor")),
+                        pos,
+                        0.0f,
+                        (renderingCamera.cellSize / 512.0f) * 1.5,
+                        tint
+                    );
+
+                    // Hopefully held string doesnt keep being used somewhere :staring_cat:
+                    char* held = tsc_mp_getHeldCell(i);
+                        tsc_cell cell = tsc_cell_create(tsc_strintern(held), 0);
+                            Texture tex = textures_get(cell.id);
+                            DrawTextureEx(
+                                tex,
+                                (Vector2) {
+                                    .x = pos.x + (renderingCamera.cellSize * 0.75f),
+                                    .y = pos.y + (renderingCamera.cellSize * 0.45f)
+                                },
+                                0,
+                                renderingCamera.cellSize / 64.0f,
+                                WHITE
+                            );
+                            //tsc_drawCell(&cell, (int)client.x, (int)client.y, 0.5, 1, false);
+                        tsc_cell_destroy(cell);
+                    tsc_mp_freeHeldCell(held);
+
+                    DrawTextEx(GetFontDefault(), client.name, text_pos, 0.4 * renderingCamera.cellSize, 0.1 * renderingCamera.cellSize, tint);
+                }
+            
+                float cursor_cell_x = GetMouseX() +  renderingCamera.x;
+                cursor_cell_x /= renderingCamera.cellSize;
+                float cursor_cell_y = GetMouseY() + renderingCamera.y;
+                cursor_cell_y /= renderingCamera.cellSize;
+
+                // If cursor has changed more than 0.1 in any axis update the cursor
+                if ((fabs(last_cursor_x - cursor_cell_x) > 0.1) || (fabs(last_cursor_y - cursor_cell_y) > 0.1)) {
+                    tsc_mp_moveCursor(cursor_cell_x, cursor_cell_y);
+                    last_cursor_x = cursor_cell_x;
+                    last_cursor_y = cursor_cell_y;
+                }
+            }
+#endif // TSC_MULTIPLAYER
         } else {
             // Dont worry potato PCs we got you... though credits will kill you
             if(GetFPS() < 30 && timeElapsed > 0.5 && particleHalvingTimer <= 0 && !tsc_streql(tsc_currentMenu, "credits")) {
@@ -286,6 +390,13 @@ int main(int argc, char **argv) {
                 if(tsc_ui_button(tsc_mainMenuBtn.play) == UI_BUTTON_HOVER) {
                     tsc_ui_box(buttonHoverColor);
                 }
+#ifdef TSC_MULTIPLAYER
+                tsc_ui_text("Multiplayer", 20, WHITE);
+                tsc_ui_pad(10, 10);
+                if(tsc_ui_button(tsc_mainMenuBtn.multiplayer) == UI_BUTTON_HOVER) {
+                    tsc_ui_box(buttonHoverColor);
+                }
+#endif // TSC_MULTIPLAYER
                 tsc_ui_text("Settings", 20, WHITE);
                 tsc_ui_pad(10, 10);
                 if(tsc_ui_button(tsc_mainMenuBtn.settings) == UI_BUTTON_HOVER) {
@@ -580,6 +691,21 @@ int main(int argc, char **argv) {
                 tsc_currentMenu = "play";
                 tsc_resetRendering();
             }
+#ifdef TSC_MULTIPLAYER
+            if(tsc_ui_checkbutton(tsc_mainMenuBtn.multiplayer) == UI_BUTTON_PRESS) {
+                tsc_currentMenu = "multiplayer";
+                tsc_resetRendering();
+                // // New tsc doesnt create a grid by default which causes a segfault so we create it here
+                // tsc_grid *grid = tsc_createGrid("main", 1, 1, NULL, NULL);
+                // tsc_switchGrid(grid);
+
+                // tsc_serverReciever = tsc_mp_connectToServer("localhost:6969", "Calion", (tsc_mp_color_t) {
+                //     .r = 255,
+                //     .g = 255,
+                //     .b = 255
+                // });
+            }
+#endif // TSC_MULTIPLAYER
             if(tsc_ui_checkbutton(tsc_mainMenuBtn.settings) == UI_BUTTON_PRESS) {
                 tsc_currentMenu = "settings";
                 tsc_resetRendering();
@@ -600,6 +726,51 @@ int main(int argc, char **argv) {
             }
             tsc_ui_popFrame();
         }
+#ifdef TSC_MULTIPLAYER
+        if(tsc_streql(tsc_currentMenu, "multiplayer")) {
+            GuiEnable();
+            GuiSetStyle(DEFAULT, TEXT_SIZE, 20);
+            if(GuiButton((Rectangle) { 20, 20, 100, 50 }, "Back")) {
+                tsc_currentMenu = "main";
+                particleHalvingTimer = 2;
+                tsc_resetRendering();
+            }
+
+            GuiSetStyle(DEFAULT,TEXT_SIZE, 50);
+            GuiLabel((Rectangle) {20, 120, 300, 50}, "Server:");
+            GuiSetStyle(DEFAULT,TEXT_SIZE, 20);
+            if(GuiTextBox((Rectangle) {220, 120, 300, 50}, mpServer, TSC_MP_SERVER_BUFSIZE, mpServerSel)) {
+                mpServerSel = !mpServerSel;
+            }
+
+            GuiSetStyle(DEFAULT,TEXT_SIZE, 50);
+            GuiLabel((Rectangle) {20, 190, 300, 50}, "Name:");
+            GuiSetStyle(DEFAULT,TEXT_SIZE, 20);
+            if(GuiTextBox((Rectangle) {220, 190, 300, 50}, mpName, 16, mpNameSel)) {
+                mpNameSel = !mpNameSel;
+            }
+
+            GuiColorPickerHSV((Rectangle){ 20, 260, 100, 100}, "Cursor Color", &mpColor);
+
+            if(GuiButton((Rectangle) {20, 380, 100, 50}, "Play")) {
+                if (strlen(mpServer) > 0 && strlen(mpName) > 0) {
+                    tsc_currentMenu = "game";
+                    tsc_resetRendering();
+
+                    tsc_grid *grid = tsc_createGrid("main", 1, 1, NULL, NULL);
+                    tsc_switchGrid(grid);
+
+                    Color col = ColorFromHSV(mpColor.x, mpColor.y, mpColor.z);
+                    printf("%d %d %d\n", col.r, col.g, col.b);
+                    tsc_serverReciever = tsc_mp_connectToServer(mpServer, mpName, (tsc_mp_color_t) {
+                        .r = col.r,
+                        .g = col.g,
+                        .b = col.b
+                    });
+                }
+            }
+        }
+#endif // TSC_MULTIPLAYER
 
         if(IsWindowFocused()) {
             SetMasterVolume(1.0);
